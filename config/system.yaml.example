@@ -1,0 +1,16 @@
+system:
+  name: "ManeYantra Home Automation"
+  log_level: INFO
+
+rabbitmq:
+  host: localhost
+  port: 5672
+  username: guest
+  password: guest
+  vhost: /
+  exchange_name: maneyantra
+
+paths:
+  data: ./data
+  logs: ./logs
+  plugins: ./maneyantra/plugins

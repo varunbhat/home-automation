@@ -1,0 +1,77 @@
+services:
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: maneyantra-rabbitmq
+    ports:
+      - "5672:5672"      # AMQP port
+      - "15672:15672"    # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - maneyantra-network
+    env_file:
+      - .env
+
+  # Eufy Security Bridge (Node.js)
+  eufy-bridge:
+    build:
+      context: ./eufy-bridge
+      dockerfile: Dockerfile
+    container_name: maneyantra-eufy-bridge
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"  # HTTP API
+      - "3001:3001"  # WebSocket
+    restart: unless-stopped
+    networks:
+      - maneyantra-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ManeYantra Application
+  maneyantra:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: maneyantra-app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      eufy-bridge:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      EUFY_BRIDGE_URL: http://eufy-bridge:3000
+      EUFY_BRIDGE_WS_URL: ws://eufy-bridge:3001
+    volumes:
+      # Mount config directory for easy configuration updates
+      - ./config:/app/config
+      # Mount logs directory to persist logs
+      - ./logs:/app/logs
+      # Create data directory for persistence
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - maneyantra-network
+
+volumes:
+  rabbitmq_data:
+    driver: local
+
+networks:
+  maneyantra-network:
+    driver: bridge

@@ -1,0 +1,48 @@
+# Example automation rules for ManeYantra
+
+rules:
+  # Turn on lights when motion is detected
+  - id: motion_light_on
+    name: "Turn on lights on motion"
+    trigger:
+      topic: "device/+/state"
+      condition:
+        field: "state.motion"
+        operator: "eq"
+        value: true
+    actions:
+      - command:
+          topic: "device/living_room_light/command"
+          payload:
+            command: "turn_on"
+            params: {}
+
+  # Turn off lights when no motion for 5 minutes
+  - id: motion_light_off
+    name: "Turn off lights after motion stops"
+    trigger:
+      topic: "device/+/state"
+      condition:
+        field: "state.motion"
+        operator: "eq"
+        value: false
+    actions:
+      - delay: 300  # Wait 5 minutes
+      - command:
+          topic: "device/living_room_light/command"
+          payload:
+            command: "turn_off"
+            params: {}
+
+  # Notify on device errors
+  - id: device_error_notify
+    name: "Notify on device errors"
+    trigger:
+      topic: "device/+/error"
+    actions:
+      - command:
+          topic: "service/notify"
+          payload:
+            title: "Device Error"
+            message: "Device $device_id reported error: $error"
+            priority: "high"

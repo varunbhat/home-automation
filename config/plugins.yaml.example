@@ -1,0 +1,52 @@
+plugins:
+  tplink:
+    enabled: true
+    type: device
+    module: maneyantra.plugins.devices.tplink.plugin
+    class: TpLinkPlugin
+    config:
+      discovery_interval: 300
+      log_level: INFO
+
+  eufy:
+    enabled: true
+    type: device
+    module: maneyantra.plugins.devices.eufy.plugin
+    class: EufyPlugin
+    config:
+      username: ${EUFY_USERNAME}
+      password: ${EUFY_PASSWORD}
+      country: ${EUFY_COUNTRY}
+      persistent_dir: ./data/eufy
+
+  rule_engine:
+    enabled: true
+    type: automation
+    module: maneyantra.plugins.automations.rules
+    class: RuleEnginePlugin
+    config:
+      rules_dir: ./config/rules
+
+  logger:
+    enabled: true
+    type: service
+    module: maneyantra.plugins.services.logger
+    class: LoggerPlugin
+    config:
+      level: INFO
+      outputs:
+        - console
+        - file
+      file_path: ./logs/maneyantra.log
+      max_size: 10485760  # 10MB
+      backup_count: 5
+
+  notifications:
+    enabled: false
+    type: service
+    module: maneyantra.plugins.services.notifications
+    class: NotificationPlugin
+    config:
+      channels:
+        - type: mqtt
+          topic: notifications

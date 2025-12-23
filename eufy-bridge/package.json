@@ -1,0 +1,18 @@
+{
+  "name": "eufy-bridge",
+  "version": "1.0.0",
+  "description": "Node.js bridge for Eufy Security integration with ManeYantra",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "eufy-security-client": "^3.0.0",
+    "express": "^4.18.2",
+    "ws": "^8.14.0",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

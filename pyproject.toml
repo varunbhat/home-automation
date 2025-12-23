@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maneyantra"
+version = "0.1.0"
+description = "Plugin-based home automation system with MQTT"
+authors = [{name = "Varun Bhat"}]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aio-pika>=9.0.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+tplink = ["python-kasa>=0.6.0"]
+eufy = ["python-eufy-security>=0.3.0"]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+maneyantra = "maneyantra.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["maneyantra*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
