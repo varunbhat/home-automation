@@ -51,3 +51,11 @@ config/*.yaml
 .DS_Store
 Thumbs.db
 .aider*
+
+# Playwright
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Downloaded installers
+*.dmg
