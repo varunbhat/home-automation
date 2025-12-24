@@ -53,21 +53,33 @@ class TpLinkPlugin(BaseDevicePlugin):
         discovered_devices = []
 
         try:
+            # Get broadcast address from config, fallback to network-specific address for macOS
+            broadcast_address = self.get_config("broadcast_address", "192.168.86.255")
+            timeout = self.get_config("discovery_timeout", 10)
+
             # Discover devices on local network
-            found_devices = await Discover.discover()
+            self._logger.debug(f"Using broadcast address: {broadcast_address}, timeout: {timeout}s")
+            found_devices = await Discover.discover(target=broadcast_address, timeout=timeout)
 
             for host, kasa_device in found_devices.items():
                 try:
-                    # Update device info
-                    await kasa_device.update()
+                    # Try to update device info, but continue even if it fails
+                    # Some TP-Link devices respond to discovery but block TCP connections
+                    try:
+                        await kasa_device.update()
+                    except Exception as update_error:
+                        self._logger.warning(
+                            f"Could not update device at {host}, using discovery data only: {update_error}"
+                        )
 
                     # Create wrapper device
                     device = self._create_device(kasa_device)
 
                     if device:
                         discovered_devices.append(device)
+                        device_type = type(kasa_device).__name__
                         self._logger.info(
-                            f"Discovered: {kasa_device.alias} ({kasa_device.model}) at {host}"
+                            f"Discovered: {device_type} at {host}"
                         )
 
                 except Exception as e:
@@ -83,11 +95,15 @@ class TpLinkPlugin(BaseDevicePlugin):
         # Determine device type
         if kasa_device.is_bulb:
             return TpLinkLight(kasa_device, self.plugin_id, self.event_bus)
-        elif kasa_device.is_plug:
+        elif kasa_device.is_plug or kasa_device.is_strip:
+            # is_plug includes wall switches, plugs, and power strips
             return TpLinkPlug(kasa_device, self.plugin_id, self.event_bus)
         else:
-            self._logger.warning(f"Unknown device type: {kasa_device.device_type}")
-            return None
+            # For unknown types or devices without update data, try creating as plug
+            self._logger.warning(
+                f"Unknown or uninitialized device type: {kasa_device.device_type}, treating as switch/plug"
+            )
+            return TpLinkPlug(kasa_device, self.plugin_id, self.event_bus)
 
     async def start(self) -> None:
         """Start the TP-Link plugin."""

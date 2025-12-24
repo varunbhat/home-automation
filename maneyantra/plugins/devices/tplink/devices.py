@@ -35,16 +35,25 @@ class TpLinkLight(Device):
         if kasa_device.is_variable_color_temp:
             capabilities.append(DeviceCapability.COLOR_TEMPERATURE)
 
-        # Create device info
+        # Create device info with fallbacks for devices without update() data
+        device_id = kasa_device.device_id
+        if not device_id and hasattr(kasa_device, 'mac'):
+            device_id = kasa_device.mac.replace(":", "")
+        if not device_id and hasattr(kasa_device, 'host'):
+            device_id = kasa_device.host.replace(".", "_")
+
+        device_name = kasa_device.alias or f"TP-Link Light ({kasa_device.host})"
+        device_model = kasa_device.model or "Unknown"
+
         device_info = DeviceInfo(
-            id=kasa_device.device_id or kasa_device.mac.replace(":", ""),
-            name=kasa_device.alias,
+            id=device_id,
+            name=device_name,
             type=DeviceType.LIGHT,
             capabilities=capabilities,
             manufacturer="TP-Link",
-            model=kasa_device.model,
-            sw_version=kasa_device.hw_info.get("sw_ver"),
-            hw_version=kasa_device.hw_info.get("hw_ver"),
+            model=device_model,
+            sw_version=kasa_device.hw_info.get("sw_ver") if kasa_device.hw_info else None,
+            hw_version=kasa_device.hw_info.get("hw_ver") if kasa_device.hw_info else None,
             plugin_id=plugin_id,
         )
 
@@ -135,16 +144,25 @@ class TpLinkPlug(Device):
             capabilities.append(DeviceCapability.POWER_MONITORING)
             capabilities.append(DeviceCapability.ENERGY_MONITORING)
 
-        # Create device info
+        # Create device info with fallbacks for devices without update() data
+        device_id = kasa_device.device_id
+        if not device_id and hasattr(kasa_device, 'mac'):
+            device_id = kasa_device.mac.replace(":", "")
+        if not device_id and hasattr(kasa_device, 'host'):
+            device_id = kasa_device.host.replace(".", "_")
+
+        device_name = kasa_device.alias or f"TP-Link Device ({kasa_device.host})"
+        device_model = kasa_device.model or "Unknown"
+
         device_info = DeviceInfo(
-            id=kasa_device.device_id or kasa_device.mac.replace(":", ""),
-            name=kasa_device.alias,
+            id=device_id,
+            name=device_name,
             type=DeviceType.PLUG,
             capabilities=capabilities,
             manufacturer="TP-Link",
-            model=kasa_device.model,
-            sw_version=kasa_device.hw_info.get("sw_ver"),
-            hw_version=kasa_device.hw_info.get("hw_ver"),
+            model=device_model,
+            sw_version=kasa_device.hw_info.get("sw_ver") if kasa_device.hw_info else None,
+            hw_version=kasa_device.hw_info.get("hw_ver") if kasa_device.hw_info else None,
             plugin_id=plugin_id,
         )
 

@@ -32,6 +32,8 @@ services:
     ports:
       - "3000:3000"  # HTTP API
       - "3001:3001"  # WebSocket
+    volumes:
+      - ./data/eufy:/app/data  # Persist trusted device tokens to avoid CAPTCHA
     restart: unless-stopped
     networks:
       - maneyantra-network

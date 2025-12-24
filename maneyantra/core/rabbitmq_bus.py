@@ -169,6 +169,13 @@ class RabbitMQEventBus:
         if not self.queue:
             raise RuntimeError("Not connected to RabbitMQ broker")
 
+        if not self.channel:
+            raise RuntimeError("RabbitMQ channel not initialized")
+
+        # Wait for channel to be ready (robust channels may temporarily close during reconnection)
+        if hasattr(self.channel, 'ready') and callable(self.channel.ready):
+            await self.channel.ready()
+
         full_pattern = f"{self.exchange_name}.{routing_pattern}"
 
         # Bind queue to exchange with pattern

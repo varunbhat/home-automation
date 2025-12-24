@@ -1,0 +1,17 @@
+{
+  "name": "maneyantra-api-spec",
+  "version": "0.1.0",
+  "description": "TypeSpec API specification for ManeYantra",
+  "type": "module",
+  "scripts": {
+    "build": "tsp compile main.tsp",
+    "watch": "tsp compile main.tsp --watch",
+    "install": "npm install -g @typespec/compiler @typespec/http @typespec/rest @typespec/openapi3"
+  },
+  "dependencies": {
+    "@typespec/compiler": "latest",
+    "@typespec/http": "latest",
+    "@typespec/rest": "latest",
+    "@typespec/openapi3": "latest"
+  }
+}

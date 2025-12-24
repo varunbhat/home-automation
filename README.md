@@ -378,10 +378,32 @@ maneyantra --config config
 - Verify module path is correct
 - Check logs in `logs/maneyantra.log`
 
+## Web Dashboard
+
+ManeYantra includes a modern React frontend with real-time updates:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Visit http://localhost:5173 to access the dashboard.
+
+**Features:**
+- 🎨 Modern, responsive UI with Tailwind CSS
+- ⚡ Real-time device updates via Server-Sent Events (SSE)
+- 🎛️ Device control (on/off, brightness, etc.)
+- 🔍 Filter devices by type, room, and status
+- 📊 Live event log
+- 🌙 Dark mode support
+
+See [frontend/README.md](frontend/README.md) for more details.
+
 ## Future Enhancements
 
-- [ ] Web UI dashboard
-- [ ] REST API
+- [x] Web UI dashboard
+- [x] REST API with SSE
 - [ ] More device integrations (Zigbee, Z-Wave via bridges)
 - [ ] Advanced scheduling
 - [ ] Scenes support

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ManeYantra SSE Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        button.primary {
+            background: #4CAF50;
+            color: white;
+        }
+        button.primary:hover {
+            background: #45a049;
+        }
+        button.danger {
+            background: #f44336;
+            color: white;
+        }
+        button.danger:hover {
+            background: #da190b;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .events {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background: #fafafa;
+        }
+        .event {
+            padding: 8px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            border-left: 4px solid #4CAF50;
+            background: white;
+        }
+        .event.state {
+            border-left-color: #2196F3;
+        }
+        .event.discovery {
+            border-left-color: #FF9800;
+        }
+        .event.error {
+            border-left-color: #f44336;
+        }
+        .event.heartbeat {
+            border-left-color: #9E9E9E;
+            opacity: 0.5;
+        }
+        .event-type {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        .event-data {
+            color: #666;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 10px;
+        }
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏠 ManeYantra Real-time Events</h1>
+
+        <div class="controls">
+            <input type="text" id="apiUrl" placeholder="API URL" value="http://localhost:8000/api/v1/events/stream">
+            <input type="text" id="deviceId" placeholder="Device ID (optional)">
+            <select id="eventType">
+                <option value="">All Events</option>
+                <option value="state">State Updates</option>
+                <option value="discovery">Discovery</option>
+                <option value="available">Availability</option>
+                <option value="error">Errors</option>
+            </select>
+            <button id="connectBtn" class="primary">Connect</button>
+            <button id="disconnectBtn" class="danger" disabled>Disconnect</button>
+            <button id="clearBtn">Clear Events</button>
+        </div>
+
+        <div id="status" class="status disconnected">Disconnected</div>
+
+        <div>
+            <strong>Events received: <span id="eventCount">0</span></strong>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Event Stream</h2>
+        <div id="events" class="events"></div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let eventCount = 0;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusEl = document.getElementById('status');
+        const eventsEl = document.getElementById('events');
+        const eventCountEl = document.getElementById('eventCount');
+        const apiUrlInput = document.getElementById('apiUrl');
+        const deviceIdInput = document.getElementById('deviceId');
+        const eventTypeSelect = document.getElementById('eventType');
+
+        function updateStatus(connected) {
+            if (connected) {
+                statusEl.textContent = 'Connected - Receiving live updates';
+                statusEl.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else {
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
+        }
+
+        function addEvent(type, data) {
+            eventCount++;
+            eventCountEl.textContent = eventCount;
+
+            const eventDiv = document.createElement('div');
+            eventDiv.className = `event ${type}`;
+
+            const timestamp = new Date().toLocaleTimeString();
+
+            eventDiv.innerHTML = `
+                <div class="event-type">${type.toUpperCase()}</div>
+                <div class="timestamp">${timestamp}</div>
+                <div class="event-data">${JSON.stringify(data, null, 2)}</div>
+            `;
+
+            eventsEl.insertBefore(eventDiv, eventsEl.firstChild);
+
+            // Keep only last 100 events
+            while (eventsEl.children.length > 100) {
+                eventsEl.removeChild(eventsEl.lastChild);
+            }
+        }
+
+        function connect() {
+            let url = apiUrlInput.value;
+
+            // Add query parameters
+            const params = new URLSearchParams();
+            if (deviceIdInput.value) {
+                params.append('device_id', deviceIdInput.value);
+            }
+            if (eventTypeSelect.value) {
+                params.append('event_type', eventTypeSelect.value);
+            }
+
+            if (params.toString()) {
+                url += '?' + params.toString();
+            }
+
+            console.log('Connecting to:', url);
+
+            eventSource = new EventSource(url);
+
+            eventSource.onopen = () => {
+                console.log('SSE connection opened');
+                updateStatus(true);
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('SSE error:', error);
+                addEvent('error', { message: 'Connection error occurred' });
+                disconnect();
+            };
+
+            // Handle specific event types
+            eventSource.addEventListener('connected', (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('connected', data);
+            });
+
+            eventSource.addEventListener('state', (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('state', data);
+            });
+
+            eventSource.addEventListener('discovery', (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('discovery', data);
+            });
+
+            eventSource.addEventListener('available', (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('available', data);
+            });
+
+            eventSource.addEventListener('error', (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('error', data);
+            });
+
+            eventSource.addEventListener('heartbeat', (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('heartbeat', data);
+            });
+
+            eventSource.addEventListener('system', (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('system', data);
+            });
+
+            // Default message handler
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('message', data);
+            };
+        }
+
+        function disconnect() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            updateStatus(false);
+        }
+
+        function clearEvents() {
+            eventsEl.innerHTML = '';
+            eventCount = 0;
+            eventCountEl.textContent = '0';
+        }
+
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        clearBtn.addEventListener('click', clearEvents);
+
+        // Auto-connect on load (optional)
+        // connect();
+    </script>
+</body>
+</html>
