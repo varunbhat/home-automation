@@ -1,42 +1,63 @@
 # ManeYantra 🏠
 
-**Plugin-based home automation system with RabbitMQ**
+**Plugin-based home automation system with RabbitMQ and React UI**
 
-ManeYantra is a custom, language-agnostic home automation system built with Python. It uses RabbitMQ (AMQP) for inter-plugin communication, allowing you to write plugins in any language.
+ManeYantra is a custom, language-agnostic home automation system built with Python backend, React frontend, and RabbitMQ message broker. It uses RabbitMQ (AMQP) for inter-plugin communication, allowing you to write plugins in any language.
 
 ## Features
 
+- 🎨 **Modern React UI** - Real-time dashboard with device control and guard mode management
+- ⚡ **Server-Sent Events (SSE)** - Live device updates without polling
 - 🔌 **RabbitMQ-based architecture** - Enterprise-grade message broker with guaranteed delivery
 - 🧩 **Plugin system** - Extensible device, automation, and service plugins
-- 🏡 **Device support** - TP-Link Kasa, Eufy Security (cameras, sensors)
+- 🏡 **Device support** - TP-Link Kasa, Eufy Security (cameras, sensors, stations)
+- 🛡️ **Guard Mode Control** - Arm/disarm Eufy HomeBase stations (Disarmed/Home/Away)
 - 🤖 **Automation** - Rule-based automation engine
-- 📊 **Services** - Logging, notifications, and more
+- 📊 **REST API** - FastAPI backend with OpenAPI documentation
 - 🌍 **Distributed** - Plugins can run anywhere on your network
 - 📈 **Management UI** - Built-in RabbitMQ management dashboard
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│          ManeYantra Core (Python)        │
-│  ┌──────────────┐  ┌──────────────┐    │
-│  │Plugin Manager│  │RabbitMQ Bus  │    │
-│  └──────────────┘  └──────────────┘    │
-└─────────────────────────────────────────┘
-              │
-      RabbitMQ Broker (AMQP)
-     with Management UI :15672
-              │
-     ┌────────┼────────┐
-     ▼        ▼        ▼
-┌─────────┐┌──────────┐┌──────────┐
-│ Device  ││Automation││ Service  │
-│Plugins  ││ Plugins  ││ Plugins  │
-│(Python) ││(Python)  ││(Python)  │
-│         ││          ││          │
-│• TP-Link││• Rules   ││• Logger  │
-│• Eufy   ││          ││• Notify  │
-└─────────┘└──────────┘└──────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    React Frontend (Port 5173)                 │
+│  ┌────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
+│  │Device Cards│  │Guard Mode UI │  │SSE Event Connection  │ │
+│  └────────────┘  └──────────────┘  └──────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                         REST API + SSE
+                              │
+┌──────────────────────────────────────────────────────────────┐
+│              FastAPI Backend (Port 8000)                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │  /api/v1/    │  │   /events    │  │  Plugin Manager  │  │
+│  │   devices    │  │    (SSE)     │  │                  │  │
+│  │   stations   │  │              │  │                  │  │
+│  └──────────────┘  └──────────────┘  └──────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                    RabbitMQ Broker (AMQP)
+                   Management UI: Port 15672
+                              │
+                 ┌────────────┼────────────┐
+                 ▼            ▼            ▼
+         ┌───────────┐ ┌──────────┐ ┌──────────┐
+         │  Device   │ │Automation│ │ Service  │
+         │  Plugins  │ │ Plugins  │ │ Plugins  │
+         │           │ │          │ │          │
+         │ • TP-Link │ │ • Rules  │ │ • Logger │
+         │ • Eufy    │ │          │ │ • Notify │
+         └───────────┘ └──────────┘ └──────────┘
+                 │
+         ┌───────┴────────┐
+         ▼                ▼
+   ┌──────────┐    ┌────────────┐
+   │ Devices  │    │Eufy Bridge │
+   │(TP-Link) │    │(Node.js)   │
+   └──────────┘    │Port 3000   │
+                   └────────────┘
 ```
 
 ### RabbitMQ Routing Keys
@@ -54,44 +75,90 @@ ManeYantra is a custom, language-agnostic home automation system built with Pyth
 - `*` - Matches exactly one word
 - `#` - Matches zero or more words
 
-## Installation
+## Quick Start
 
 ### Prerequisites
 
 1. **Python 3.11+**
-2. **RabbitMQ** (Message broker)
+2. **Node.js 18+** (for frontend)
+3. **Docker & Docker Compose** (recommended for RabbitMQ and Eufy Bridge)
 
-```bash
-# Install RabbitMQ on macOS
-brew install rabbitmq
-brew services start rabbitmq
-
-# Install RabbitMQ on Ubuntu/Debian
-sudo apt install rabbitmq-server
-sudo systemctl enable rabbitmq-server
-sudo systemctl start rabbitmq-server
-
-# Enable RabbitMQ Management UI (optional but recommended)
-sudo rabbitmq-plugins enable rabbitmq_management
-# Access at http://localhost:15672 (guest/guest)
-```
-
-### Install ManeYantra
+### Installation
 
 ```bash
 # Clone the repository
-cd /path/to/maneyantra
+git clone git@github.com:varunbhat/home-automation.git
+cd home-automation
 
-# Create virtual environment
+# Start infrastructure (RabbitMQ + Eufy Bridge)
+docker-compose up -d
+
+# Install backend
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Or install in development mode
-pip install -e .
+# Install frontend
+cd frontend
+npm install
+cd ..
 ```
+
+### Running the Application
+
+You need to run three components:
+
+#### 1. Backend (from project root)
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run from project root directory
+python -m maneyantra.main
+
+# Backend runs on http://localhost:8000
+# API docs: http://localhost:8000/docs
+```
+
+#### 2. Frontend (from frontend/ directory)
+```bash
+# Navigate to frontend directory
+cd frontend
+
+# Start development server
+npm run dev
+
+# Frontend runs on http://localhost:5173
+```
+
+#### 3. Infrastructure (Docker containers)
+```bash
+# From project root
+docker-compose up -d
+
+# RabbitMQ Management UI: http://localhost:15672 (guest/guest)
+# Eufy Bridge: http://localhost:3000
+```
+
+### Verify Setup
+
+1. **Backend health**: http://localhost:8000/health
+2. **Frontend**: http://localhost:5173
+3. **RabbitMQ**: http://localhost:15672
+4. **API docs**: http://localhost:8000/docs
+
+### Directory Reference
+
+**CRITICAL**: Always run commands from the correct directory:
+
+| Component | Working Directory | Command |
+|-----------|------------------|---------|
+| **Backend** | `/path/to/home-automation` (project root) | `python -m maneyantra.main` |
+| **Frontend** | `/path/to/home-automation/frontend` | `npm run dev` |
+| **Docker** | `/path/to/home-automation` (project root) | `docker-compose up -d` |
+| **Scripts** | `/path/to/home-automation` (project root) | `python scripts/add_test_devices.py` |
+
+⚠️ **Common Error**: Running backend from wrong directory causes "config/system.yaml not found" error
 
 ## Configuration
 
@@ -144,47 +211,44 @@ EUFY_PASSWORD=your_password
 
 ## Usage
 
-### Start the system
+### Control Devices
 
+The easiest way to control devices is through the **Web UI** at http://localhost:5173
+
+#### Via Web UI (Recommended)
+1. Open http://localhost:5173
+2. View all connected devices in the grid
+3. Click device controls to turn on/off, adjust brightness, etc.
+4. Use guard mode control to arm/disarm Eufy stations
+
+#### Via REST API
 ```bash
-# Using the installed command
-maneyantra
+# Turn on a light
+curl -X POST http://localhost:8000/api/v1/devices/living_room_light/command \
+  -H "Content-Type: application/json" \
+  -d '{"command": "turn_on"}'
 
-# Or run directly
-python -m maneyantra.main
+# Set brightness to 75%
+curl -X POST http://localhost:8000/api/v1/devices/living_room_light/command \
+  -H "Content-Type: application/json" \
+  -d '{"command": "set_brightness", "params": {"brightness": 75}}'
 
-# With custom config directory
-maneyantra --config /path/to/config
+# Set guard mode to Away (mode 2)
+curl -X POST http://localhost:8000/api/v1/stations/T8010XXXXX/guard-mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode": 2}'
 ```
 
-### Control devices via RabbitMQ
+#### Via RabbitMQ (Advanced)
 
-You can use the RabbitMQ Management UI or command-line tools:
+You can also publish messages directly to RabbitMQ:
 
 **Using RabbitMQ Management UI:**
 1. Open http://localhost:15672 (guest/guest)
 2. Go to "Queues" tab
 3. Publish messages to the exchange "maneyantra"
 
-**Using rabbitmqadmin CLI:**
-```bash
-# Install rabbitmqadmin
-sudo rabbitmq-plugins enable rabbitmq_management
-wget http://localhost:15672/cli/rabbitmqadmin
-chmod +x rabbitmqadmin
-
-# Turn on a light
-./rabbitmqadmin publish exchange=maneyantra \
-  routing_key="maneyantra.device.living_room_light.command" \
-  payload='{"command":"turn_on","params":{}}'
-
-# Set brightness
-./rabbitmqadmin publish exchange=maneyantra \
-  routing_key="maneyantra.device.living_room_light.command" \
-  payload='{"command":"set_brightness","params":{"brightness":75}}'
-```
-
-**Or use Python with pika:**
+**Using Python with pika:**
 ```python
 import pika
 import json
@@ -308,18 +372,39 @@ rules:
 ## Project Structure
 
 ```
-maneyantra/
-├── maneyantra/
-│   ├── core/                   # Core system
-│   │   ├── mqtt_bus.py        # MQTT event bus
+home-automation/
+├── frontend/                   # React frontend (Port 5173)
+│   ├── src/
+│   │   ├── app/               # Main app component
+│   │   ├── features/          # Feature modules
+│   │   │   ├── devices/       # Device management
+│   │   │   ├── stations/      # Guard mode control
+│   │   │   └── events/        # SSE event stream
+│   │   ├── shared/            # Shared components & utils
+│   │   └── lib/               # API client, React Query
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── maneyantra/                 # Python backend (Port 8000)
+│   ├── api/                   # FastAPI routes
+│   │   ├── app.py             # FastAPI app setup
+│   │   ├── models.py          # Pydantic models
+│   │   └── routers/           # API endpoints
+│   │       ├── devices.py     # /api/v1/devices
+│   │       ├── stations.py    # /api/v1/stations
+│   │       ├── events.py      # /events (SSE)
+│   │       └── plugins.py     # /api/v1/plugins
+│   ├── core/                  # Core system
+│   │   ├── rabbitmq_bus.py    # RabbitMQ event bus
 │   │   ├── plugin.py          # Plugin base classes
 │   │   ├── manager.py         # Plugin manager
 │   │   └── config.py          # Configuration
 │   ├── plugins/
 │   │   ├── devices/           # Device plugins
 │   │   │   ├── base.py
-│   │   │   ├── tplink/
-│   │   │   └── eufy/
+│   │   │   ├── tplink/        # TP-Link integration
+│   │   │   ├── eufy/          # Eufy integration
+│   │   │   └── mock/          # Mock devices for testing
 │   │   ├── automations/       # Automation plugins
 │   │   │   └── rules.py
 │   │   └── services/          # Service plugins
@@ -327,14 +412,29 @@ maneyantra/
 │   │       └── notifications.py
 │   ├── types/                 # Type definitions
 │   │   └── devices.py
-│   └── main.py               # Entry point
-├── config/                    # Configuration
-│   ├── system.yaml
-│   ├── plugins.yaml
-│   └── rules/
-├── requirements.txt
-├── pyproject.toml
-└── README.md
+│   └── main.py                # Entry point
+│
+├── eufy-bridge/                # Node.js Eufy Security bridge
+│   ├── server.js              # HTTP API + WebSocket server
+│   └── package.json
+│
+├── config/                     # Configuration files
+│   ├── system.yaml            # System settings
+│   ├── plugins.yaml           # Plugin configuration
+│   └── rules/                 # Automation rules
+│
+├── scripts/                    # Utility scripts
+│   └── add_test_devices.py    # Add mock devices
+│
+├── docker-compose.yml          # Infrastructure (RabbitMQ, Eufy Bridge)
+├── requirements.txt            # Python dependencies
+├── pyproject.toml              # Python project config
+├── RULES.md                    # Branch protection rules
+└── README.md                   # This file
+
+IMPORTANT DIRECTORIES TO RUN COMMANDS:
+- Backend: Run from PROJECT ROOT (/path/to/home-automation)
+- Frontend: Run from frontend/ directory (/path/to/home-automation/frontend)
 ```
 
 ## Development
@@ -380,25 +480,106 @@ maneyantra --config config
 
 ## Web Dashboard
 
-ManeYantra includes a modern React frontend with real-time updates:
+ManeYantra includes a modern React 19 frontend with real-time updates via Server-Sent Events.
+
+### Features
+
+- 🎨 **Modern UI** - Responsive design with Tailwind CSS and shadcn/ui components
+- ⚡ **Real-time Updates** - Server-Sent Events (SSE) for live device state changes
+- 🎛️ **Device Control** - Control lights, plugs, switches (on/off, brightness, color, temperature)
+- 🛡️ **Guard Mode** - Arm/disarm Eufy HomeBase stations (Disarmed/Home/Away)
+- 📊 **Sensor Display** - Motion sensors, door/window sensors, battery levels
+- 🔍 **Device Organization** - Grid view with device cards showing capabilities
+- 🌐 **Network Status** - Live connection indicator for SSE stream
+- 📱 **Responsive** - Works on desktop, tablet, and mobile
+
+### Technology Stack
+
+- **Frontend Framework**: React 19 with TypeScript
+- **Build Tool**: Vite 7
+- **State Management**: TanStack Query (React Query)
+- **UI Components**: shadcn/ui + Tailwind CSS
+- **API Client**: Axios
+- **Real-time**: Server-Sent Events (SSE)
+
+### Running Frontend
 
 ```bash
+# From frontend/ directory
 cd frontend
+
+# Install dependencies (first time only)
 npm install
+
+# Start development server
 npm run dev
+
+# Production build
+npm run build
+npm run preview
 ```
 
-Visit http://localhost:5173 to access the dashboard.
+**URLs:**
+- Development: http://localhost:5173
+- Backend API: http://localhost:8000
+- SSE Events: http://localhost:8000/events
 
-**Features:**
-- 🎨 Modern, responsive UI with Tailwind CSS
-- ⚡ Real-time device updates via Server-Sent Events (SSE)
-- 🎛️ Device control (on/off, brightness, etc.)
-- 🔍 Filter devices by type, room, and status
-- 📊 Live event log
-- 🌙 Dark mode support
+See [frontend/README.md](frontend/README.md) and [frontend/ARCHITECTURE.md](frontend/ARCHITECTURE.md) for more details.
 
-See [frontend/README.md](frontend/README.md) for more details.
+## REST API
+
+ManeYantra provides a FastAPI-based REST API with automatic OpenAPI documentation.
+
+### API Endpoints
+
+#### Devices
+- `GET /api/v1/devices` - List all devices
+- `GET /api/v1/devices/{device_id}` - Get device details
+- `GET /api/v1/devices/{device_id}/state` - Get device state
+- `POST /api/v1/devices/{device_id}/command` - Send device command
+- `POST /api/v1/devices/{device_id}/refresh` - Refresh device state
+
+#### Stations (Eufy HomeBase)
+- `GET /api/v1/stations` - List all stations
+- `POST /api/v1/stations/{serial}/guard-mode` - Set guard mode (0=Disarmed, 1=Home, 2=Away)
+
+#### Plugins
+- `GET /api/v1/plugins` - List all plugins
+- `GET /api/v1/plugins/{plugin_id}` - Get plugin details
+
+#### Events
+- `GET /events` - Server-Sent Events stream for real-time updates
+
+### API Documentation
+
+- **Interactive Docs**: http://localhost:8000/docs (Swagger UI)
+- **ReDoc**: http://localhost:8000/redoc (Alternative documentation)
+- **OpenAPI Schema**: http://localhost:8000/openapi.json
+
+### Example API Usage
+
+```bash
+# List all devices
+curl http://localhost:8000/api/v1/devices
+
+# Turn on a light
+curl -X POST http://localhost:8000/api/v1/devices/living_room_light/command \
+  -H "Content-Type: application/json" \
+  -d '{"command": "turn_on"}'
+
+# Set brightness
+curl -X POST http://localhost:8000/api/v1/devices/living_room_light/command \
+  -H "Content-Type: application/json" \
+  -d '{"command": "set_brightness", "params": {"brightness": 75}}'
+
+# Set guard mode to Away
+curl -X POST http://localhost:8000/api/v1/stations/T8010XXXXX/guard-mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode": 2}'
+
+# Subscribe to real-time events
+curl -N http://localhost:8000/events
+```
 
 ## Future Enhancements
 
