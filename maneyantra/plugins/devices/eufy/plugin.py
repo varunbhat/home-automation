@@ -93,6 +93,9 @@ class EufyPlugin(BaseDevicePlugin):
                         device = self._create_device(device_data)
 
                         if device:
+                            # Refresh state to populate initial data
+                            await device.refresh_state()
+
                             discovered_devices.append(device)
                             self._logger.info(
                                 f"Discovered: {device_data['name']} ({device_data['serial']})"
@@ -115,13 +118,23 @@ class EufyPlugin(BaseDevicePlugin):
 
     def _create_device(self, device_data: Dict) -> Optional[Device]:
         """Create appropriate device wrapper based on device type."""
-        device_type = str(device_data.get('type', '')).lower()
+        device_type = device_data.get('type', 0)
 
-        if "camera" in device_type or "doorbell" in device_type:
-            return EufyCamera(device_data, self.plugin_id, self.event_bus, self.session, self.bridge_url)
+        # Eufy device type codes:
+        # 1 = Station
+        # 2 = Entry/Door Sensor (T8900)
+        # 7, 8, 9 = Cameras (various models)
+        # 10 = Motion Sensor (T8910)
+        # 30-39 = Doorbells (various models)
+        # 90+ = Cameras (advanced models, e.g., 104 = SoloCam S40)
 
-        elif "sensor" in device_type or "motion" in device_type:
-            return EufySensor(device_data, self.plugin_id, self.event_bus, self.session, self.bridge_url)
+        # Cameras and Doorbells
+        if device_type in [7, 8, 9, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39] or device_type >= 90:
+            return EufyCamera(device_data, self.plugin_id, self.event_bus)
+
+        # Sensors (Entry/Door sensors and Motion sensors)
+        elif device_type in [2, 10]:
+            return EufySensor(device_data, self.plugin_id, self.event_bus)
 
         else:
             self._logger.warning(f"Unknown Eufy device type: {device_type}")
@@ -171,6 +184,7 @@ class EufyPlugin(BaseDevicePlugin):
                     async for message in ws:
                         try:
                             event = json.loads(message)
+                            self._logger.info(f"WebSocket event received: {event}")
                             await self._handle_event(event)
                         except Exception as e:
                             self._logger.error(f"Error processing event: {e}", exc_info=True)
@@ -199,14 +213,27 @@ class EufyPlugin(BaseDevicePlugin):
             device = self.devices.get(serial)
             if device:
                 await device.update_state({"motion": True})
-                self._logger.debug(f"Motion detected: {serial}")
+                self._logger.info(f"Motion detected: {device.info.name} ({serial})")
+                # Publish system event for UI notification
+                await self.event_bus.publish_system_event({
+                    'type': 'sensor.motion_detected',
+                    'device_id': serial,
+                    'device_name': device.info.name,
+                    'timestamp': event.get('timestamp')
+                })
 
         elif event_type == 'person_detected':
             serial = event.get('serial')
             device = self.devices.get(serial)
             if device:
                 await device.update_state({"motion": True, "custom": {"person": True}})
-                self._logger.debug(f"Person detected: {serial}")
+                self._logger.info(f"Person detected: {device.info.name} ({serial})")
+                await self.event_bus.publish_system_event({
+                    'type': 'sensor.person_detected',
+                    'device_id': serial,
+                    'device_name': device.info.name,
+                    'timestamp': event.get('timestamp')
+                })
 
         elif event_type == 'device_added':
             device_data = event.get('device')
@@ -218,5 +245,98 @@ class EufyPlugin(BaseDevicePlugin):
             if station_data:
                 self._logger.info(f"New station added: {station_data.get('name')}")
 
+        elif event_type == 'station_guard_mode':
+            # Guard mode changed event
+            serial = event.get('serialNumber') or event.get('serial')
+            current_mode = event.get('currentMode') or event.get('mode')
+            if serial and current_mode is not None:
+                self._logger.info(f"Guard mode changed for station {serial}: {current_mode}")
+                # Publish system event for guard mode change
+                await self.event_bus.publish_system_event({
+                    'type': 'station.guard_mode_changed',
+                    'station_serial': serial,
+                    'guard_mode': current_mode,
+                    'timestamp': event.get('timestamp')
+                })
+
+        elif event_type == 'station_current_mode':
+            # Alternative event name for mode changes
+            serial = event.get('serialNumber') or event.get('serial')
+            current_mode = event.get('currentMode') or event.get('mode')
+            if serial and current_mode is not None:
+                self._logger.info(f"Station current mode for {serial}: {current_mode}")
+                await self.event_bus.publish_system_event({
+                    'type': 'station.guard_mode_changed',
+                    'station_serial': serial,
+                    'guard_mode': current_mode,
+                    'timestamp': event.get('timestamp')
+                })
+
+        elif event_type == 'property_changed':
+            # Handle device property changes (battery, contact, etc.)
+            serial = event.get('serialNumber')
+            name = event.get('name')
+            value = event.get('value')
+
+            device = self.devices.get(serial)
+            if device:
+                self._logger.debug(f"Property changed for {serial}: {name} = {value}")
+
+                # Map property names to state fields
+                if name == 'batteryLevel':
+                    await device.update_state({"battery": value})
+                    self._logger.info(f"Battery level changed: {device.info.name} = {value}%")
+                elif name == 'motionDetected':
+                    await device.update_state({"motion": value})
+                    if value:  # Motion detected
+                        self._logger.info(f"Motion detected (property): {device.info.name}")
+                        await self.event_bus.publish_system_event({
+                            'type': 'sensor.motion_detected',
+                            'device_id': serial,
+                            'device_name': device.info.name,
+                            'timestamp': event.get('timestamp')
+                        })
+                elif name == 'sensorOpen':
+                    await device.update_state({"contact": value})
+                    status = "opened" if value else "closed"
+                    self._logger.info(f"Door sensor {status}: {device.info.name}")
+                    await self.event_bus.publish_system_event({
+                        'type': f'sensor.door_{status}',
+                        'device_id': serial,
+                        'device_name': device.info.name,
+                        'is_open': value,
+                        'timestamp': event.get('timestamp')
+                    })
+                elif name == 'enabled':
+                    await device.update_state({"online": value})
+
         else:
-            self._logger.debug(f"Unhandled event type: {event_type}")
+            self._logger.info(f"Unhandled event type: {event_type}, event: {event}")
+
+    async def get_stations(self) -> List[Dict]:
+        """Get list of stations from bridge."""
+        try:
+            async with self.session.get(f"{self.bridge_url}/stations") as resp:
+                data = await resp.json()
+                return data.get('stations', [])
+        except Exception as e:
+            self._logger.error(f"Error getting stations: {e}", exc_info=True)
+            return []
+
+    async def set_guard_mode(self, serial: str, mode: int) -> bool:
+        """Set station guard mode."""
+        try:
+            async with self.session.post(
+                f"{self.bridge_url}/stations/{serial}/guard-mode",
+                json={"mode": mode}
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    self._logger.info(f"Guard mode changed to {mode} for station {serial}")
+                    return data.get('success', False)
+                else:
+                    self._logger.error(f"Failed to set guard mode: HTTP {resp.status}")
+                    return False
+        except Exception as e:
+            self._logger.error(f"Error setting guard mode: {e}", exc_info=True)
+            return False

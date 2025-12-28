@@ -29,7 +29,7 @@ def set_plugin_manager(manager: PluginManager):
     plugin_manager = manager
 
 
-@router.get("", response_model=DeviceListResponse)
+@router.get("", response_model=DeviceListResponse, response_model_exclude_none=True)
 async def list_devices(
     type: Optional[DeviceType] = Query(None, description="Filter by device type"),
     plugin_id: Optional[str] = Query(None, description="Filter by plugin ID"),
@@ -144,7 +144,7 @@ async def execute_command(
     raise HTTPException(status_code=404, detail=f"Device not found: {device_id}")
 
 
-@router.get("/{device_id}/state", response_model=DeviceState)
+@router.get("/{device_id}/state", response_model=DeviceState, response_model_exclude_none=True)
 async def get_device_state(
     device_id: str = Path(..., description="Device ID"),
 ):
@@ -166,7 +166,7 @@ async def get_device_state(
     raise HTTPException(status_code=404, detail=f"Device not found: {device_id}")
 
 
-@router.post("/{device_id}/refresh", response_model=DeviceState)
+@router.post("/{device_id}/refresh", response_model=DeviceState, response_model_exclude_none=True)
 async def refresh_device_state(
     device_id: str = Path(..., description="Device ID"),
 ):

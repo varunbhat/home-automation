@@ -17,7 +17,7 @@ class EufyCamera(Device):
 
     def __init__(
         self,
-        eufy_device,
+        eufy_device: Dict,
         plugin_id: str,
         event_bus: RabbitMQEventBus,
     ):
@@ -28,79 +28,50 @@ class EufyCamera(Device):
             DeviceCapability.PERSON_DETECTION,
         ]
 
-        if hasattr(eufy_device, "has_battery") and eufy_device.has_battery:
+        # Battery support for battery-powered cameras
+        if eufy_device.get("battery", 0) > 0:
             capabilities.append(DeviceCapability.BATTERY)
-
-        if hasattr(eufy_device, "has_audio") and eufy_device.has_audio:
-            capabilities.append(DeviceCapability.AUDIO)
 
         # Create device info
         device_info = DeviceInfo(
-            id=eufy_device.serial_number,
-            name=eufy_device.name,
+            id=eufy_device.get("serial"),
+            name=eufy_device.get("name"),
             type=DeviceType.CAMERA,
             capabilities=capabilities,
             manufacturer="Eufy",
-            model=eufy_device.model,
-            sw_version=getattr(eufy_device, "software_version", None),
-            hw_version=getattr(eufy_device, "hardware_version", None),
+            model=eufy_device.get("model"),
+            sw_version=None,
+            hw_version=None,
             plugin_id=plugin_id,
         )
 
         super().__init__(device_info, event_bus)
 
         self.eufy_device = eufy_device
+        self.station_serial = eufy_device.get("station_serial")
 
     async def execute_command(self, command: str, params: Optional[Dict] = None) -> None:
         """Execute a command on the camera."""
         params = params or {}
-
-        if command == "start_stream":
-            # Start video stream
-            stream_url = await self.eufy_device.start_stream()
-            await self.event_bus.publish(
-                f"device.{self.info.id}.stream",
-                {"stream_url": stream_url},
-            )
-
-        elif command == "stop_stream":
-            # Stop video stream
-            await self.eufy_device.stop_stream()
-
-        elif command == "enable_motion_detection":
-            await self.eufy_device.set_motion_detection(True)
-
-        elif command == "disable_motion_detection":
-            await self.eufy_device.set_motion_detection(False)
-
-        elif command == "trigger_alarm":
-            duration = params.get("duration", 10)
-            await self.eufy_device.trigger_alarm(duration)
-
-        else:
-            raise ValueError(f"Unknown command: {command}")
+        # Commands would be sent via bridge API
+        # TODO: Implement bridge API commands
+        raise NotImplementedError("Camera commands via bridge not yet implemented")
 
     async def refresh_state(self) -> DeviceState:
         """Refresh state from the physical device."""
-        # Update device state from Eufy
-        await self.eufy_device.update()
+        # State is updated via bridge events, not polling
+        state_data = self.eufy_device.get("state", {})
 
         # Build state
         new_state = {
-            "online": self.eufy_device.is_online,
-            "motion": getattr(self.eufy_device, "motion_detected", False),
+            "online": state_data.get("enabled", False),
+            "motion": state_data.get("motion_detected", False),
         }
 
-        # Battery level if available
-        if hasattr(self.eufy_device, "battery_level"):
-            new_state["battery"] = self.eufy_device.battery_level
-
-        # Custom attributes
-        new_state["custom"] = {
-            "person_detected": getattr(self.eufy_device, "person_detected", False),
-            "recording": getattr(self.eufy_device, "is_recording", False),
-            "streaming": getattr(self.eufy_device, "is_streaming", False),
-        }
+        # Battery level - only include if device has battery capability
+        battery = self.eufy_device.get("battery", 0)
+        if DeviceCapability.BATTERY in self.info.capabilities:
+            new_state["battery"] = battery
 
         # Update state
         await self.update_state(new_state)
@@ -113,37 +84,39 @@ class EufySensor(Device):
 
     def __init__(
         self,
-        eufy_device,
+        eufy_device: Dict,
         plugin_id: str,
         event_bus: RabbitMQEventBus,
     ):
-        # Determine device type and capabilities
-        device_type_str = eufy_device.device_type.lower()
+        # Determine device type and capabilities based on Eufy type code
+        device_type_code = eufy_device.get("type", 0)
+        model = eufy_device.get("model", "")
 
-        if "motion" in device_type_str:
+        # Type 2 = Entry/Door Sensor (T8900)
+        # Type 10 = Motion Sensor (T8910)
+        if device_type_code == 10 or "T8910" in model:
             device_type = DeviceType.MOTION_SENSOR
             capabilities = [DeviceCapability.MOTION_DETECTION]
-        elif "door" in device_type_str or "window" in device_type_str or "contact" in device_type_str:
+        elif device_type_code == 2 or "T8900" in model:
             device_type = DeviceType.DOOR_SENSOR
             capabilities = [DeviceCapability.CONTACT]
         else:
             device_type = DeviceType.SENSOR
             capabilities = []
 
-        # Add battery capability if available
-        if hasattr(eufy_device, "has_battery") and eufy_device.has_battery:
-            capabilities.append(DeviceCapability.BATTERY)
+        # Add battery capability - Eufy sensors are battery-powered
+        capabilities.append(DeviceCapability.BATTERY)
 
         # Create device info
         device_info = DeviceInfo(
-            id=eufy_device.serial_number,
-            name=eufy_device.name,
+            id=eufy_device.get("serial"),
+            name=eufy_device.get("name"),
             type=device_type,
             capabilities=capabilities,
             manufacturer="Eufy",
-            model=eufy_device.model,
-            sw_version=getattr(eufy_device, "software_version", None),
-            hw_version=getattr(eufy_device, "hardware_version", None),
+            model=model,
+            sw_version=None,
+            hw_version=None,
             plugin_id=plugin_id,
         )
 
@@ -158,32 +131,25 @@ class EufySensor(Device):
 
     async def refresh_state(self) -> DeviceState:
         """Refresh state from the physical device."""
-        # Update device state from Eufy
-        await self.eufy_device.update()
+        # State is updated via bridge events, not polling
+        state_data = self.eufy_device.get("state", {})
 
         # Build state
         new_state = {
-            "online": self.eufy_device.is_online,
+            "online": state_data.get("enabled", False),
         }
 
         # Motion detected
         if DeviceCapability.MOTION_DETECTION in self.info.capabilities:
-            new_state["motion"] = getattr(self.eufy_device, "motion_detected", False)
+            new_state["motion"] = state_data.get("motion_detected", False)
 
         # Contact state (door/window open/closed)
+        # Note: Eufy Entry Sensors report as open/closed
         if DeviceCapability.CONTACT in self.info.capabilities:
-            new_state["contact"] = getattr(self.eufy_device, "is_open", False)
+            new_state["contact"] = state_data.get("open", False)
 
-        # Battery level if available
-        if hasattr(self.eufy_device, "battery_level"):
-            new_state["battery"] = self.eufy_device.battery_level
-
-        # Temperature/humidity if available
-        if hasattr(self.eufy_device, "temperature"):
-            new_state["temperature"] = self.eufy_device.temperature
-
-        if hasattr(self.eufy_device, "humidity"):
-            new_state["humidity"] = self.eufy_device.humidity
+        # Battery level - always include even if 0
+        new_state["battery"] = self.eufy_device.get("battery", 0)
 
         # Update state
         await self.update_state(new_state)

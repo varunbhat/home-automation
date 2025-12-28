@@ -94,6 +94,11 @@ class DeviceState(BaseModel):
     class Config:
         extra = "allow"  # Allow additional fields
 
+    def model_dump(self, **kwargs):
+        """Override model_dump to exclude None values by default."""
+        kwargs.setdefault('exclude_none', True)
+        return super().model_dump(**kwargs)
+
 
 class DeviceInfo(BaseModel):
     """Device information model."""

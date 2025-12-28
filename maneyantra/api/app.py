@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from maneyantra.api.models import HealthResponse
-from maneyantra.api.routers import devices, plugins, events
+from maneyantra.api.routers import devices, plugins, events, stations
 from maneyantra.core.manager import PluginManager
 from maneyantra.core.rabbitmq_bus import RabbitMQEventBus
 
@@ -49,6 +49,7 @@ def create_app(
         devices.set_plugin_manager(plugin_manager)
         plugins.set_plugin_manager(plugin_manager)
         events.set_plugin_manager(plugin_manager)
+        stations.set_plugin_manager(plugin_manager)
 
     if event_bus:
         events.set_event_bus(event_bus)
@@ -57,6 +58,7 @@ def create_app(
     app.include_router(devices.router, prefix="/api/v1")
     app.include_router(plugins.router, prefix="/api/v1")
     app.include_router(events.router, prefix="/api/v1")
+    app.include_router(stations.router, prefix="/api/v1")
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
     async def health_check():

@@ -17,6 +17,8 @@ class Device(BaseModel):
     info: DeviceInfo
     state: DeviceState
 
+    model_config = {'exclude_none': True}
+
 
 class DeviceListResponse(BaseModel):
     """List of devices response."""

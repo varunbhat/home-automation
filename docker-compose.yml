@@ -54,11 +54,12 @@ services:
         condition: service_healthy
       eufy-bridge:
         condition: service_healthy
+    network_mode: host  # Use host network for TP-Link device discovery
     env_file:
       - .env
     environment:
-      EUFY_BRIDGE_URL: http://eufy-bridge:3000
-      EUFY_BRIDGE_WS_URL: ws://eufy-bridge:3001
+      # Override for host network mode - other services are on bridge network
+      RABBITMQ_HOST: localhost
     volumes:
       # Mount config directory for easy configuration updates
       - ./config:/app/config
@@ -67,8 +68,6 @@ services:
       # Create data directory for persistence
       - ./data:/app/data
     restart: unless-stopped
-    networks:
-      - maneyantra-network
 
 volumes:
   rabbitmq_data:
