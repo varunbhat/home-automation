@@ -6,24 +6,25 @@ The `main` branch is protected with the following rules to ensure code quality a
 
 ### Active Rules
 
-#### 1. Deletion Protection
+#### 1. Pull Request Required
+- **Rule**: All changes to main must go through a pull request
+- **Purpose**: Prevents direct commits to main branch
+- **Impact**: Cannot push directly to main; must create PR first
+- **Approvals Required**: 0 (self-merge allowed)
+
+#### 2. Deletion Protection
 - **Rule**: Branch cannot be deleted
 - **Purpose**: Prevents accidental deletion of the main branch
 
-#### 2. Non-Fast-Forward (Force Push Protection)
+#### 3. Non-Fast-Forward (Force Push Protection)
 - **Rule**: Force pushes are blocked
 - **Purpose**: Prevents rewriting history and maintains git integrity
 - **Impact**: `git push --force` is not allowed on main
 
-#### 3. Required Linear History
+#### 4. Required Linear History
 - **Rule**: Requires linear commit history
 - **Purpose**: Keeps a clean, easy-to-follow commit history
-- **Impact**: Merge commits may be restricted; prefer rebasing or squash merges
-
-#### 4. Required Signatures
-- **Rule**: Commits must be signed
-- **Purpose**: Ensures commit authenticity
-- **Impact**: You must configure GPG/SSH signing for commits
+- **Impact**: Prefer rebasing or squash merges to keep history clean
 
 ### Enforcement
 
@@ -69,48 +70,20 @@ After review and approval, merge via GitHub UI or:
 gh pr merge --squash  # Squash commits for linear history
 ```
 
-## Commit Signing Setup
+## Notes
 
-To comply with the required signatures rule, set up commit signing:
-
-### GPG Signing
-
-```bash
-# Generate GPG key
-gpg --full-generate-key
-
-# List keys
-gpg --list-secret-keys --keyid-format=long
-
-# Configure git
-git config --global user.signingkey YOUR_KEY_ID
-git config --global commit.gpgsign true
-
-# Add GPG key to GitHub
-gpg --armor --export YOUR_KEY_ID
-# Then add at https://github.com/settings/keys
-```
-
-### SSH Signing (Recommended for macOS)
-
-```bash
-# Configure git to use SSH signing
-git config --global gpg.format ssh
-git config --global user.signingkey ~/.ssh/id_ed25519.pub
-git config --global commit.gpgsign true
-
-# Add SSH key to GitHub as signing key
-# https://github.com/settings/keys (select "Signing Key" type)
-```
+- **No commit signing required**: Commits do not need to be GPG or SSH signed
+- **Self-merge allowed**: You can approve and merge your own pull requests (no review required)
+- **Linear history preferred**: Use squash or rebase merges to maintain clean history
 
 ## Ruleset Details
 
-- **Ruleset ID**: 11430414
-- **Name**: Protect main branch
+- **Ruleset ID**: 11430460
+- **Name**: Protect main branch - require PR
 - **Target**: branch
 - **Source**: Repository
 - **Created**: 2025-12-28
-- **View on GitHub**: https://github.com/varunbhat/home-automation/rules/11430414
+- **View on GitHub**: https://github.com/varunbhat/home-automation/rules/11430460
 
 ## Enforcement Level
 
