@@ -7,7 +7,10 @@
 
 const express = require('express');
 const WebSocket = require('ws');
-const { EufySecurity } = require('eufy-security-client');
+const { EufySecurity, PropertyName } = require('eufy-security-client');
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -21,12 +24,21 @@ const WS_PORT = process.env.WS_PORT || 3001;
 let eufyClient = null;
 let devices = new Map();
 let stations = new Map();
+let streamUrls = new Map(); // Map of device serial -> stream URL
+let ffmpegProcesses = new Map(); // Map of device serial -> ffmpeg process
+let activeP2PStreams = new Map(); // Map of device serial -> {ffmpeg, videostream, audiostream, metadata}
 
 // WebSocket clients for event streaming
 const wsClients = new Set();
 
 // CAPTCHA handling
 let pendingCaptcha = null;
+
+// HLS stream directory
+const HLS_DIR = '/tmp/hls';
+if (!fs.existsSync(HLS_DIR)) {
+    fs.mkdirSync(HLS_DIR, { recursive: true });
+}
 
 /**
  * Initialize Eufy Security client
@@ -179,12 +191,144 @@ function setupEventListeners() {
         console.log('Please check your Eufy app for verification code');
     });
 
-    // Add listener for ALL events to debug
+    // RTSP Livestream events - eufyClient emits "station <event>" format
+    eufyClient.on('station rtsp url', (station, channel, rtspUrl) => {
+        console.log(`[EVENT: station rtsp url] Station: ${station.getSerial()}, Channel: ${JSON.stringify(channel)}, URL: ${rtspUrl}`);
+        // Find device by channel (channel typically maps to device)
+        const deviceSerial = findDeviceByChannel(station, channel);
+        console.log(`Mapped to device serial: ${deviceSerial}`);
+        if (deviceSerial) {
+            streamUrls.set(deviceSerial, rtspUrl);
+            console.log(`Stream URL stored for ${deviceSerial}: ${rtspUrl}`);
+            console.log(`streamUrls Map now has ${streamUrls.size} entries`);
+            broadcastEvent({
+                type: 'stream_started',
+                serial: deviceSerial,
+                stream_url: rtspUrl
+            });
+        } else {
+            console.log(`WARNING: Could not find device for station ${station.getSerial()}, channel ${JSON.stringify(channel)}`);
+        }
+    });
+
+    eufyClient.on('station rtsp livestream started', (station, channel) => {
+        console.log(`[EVENT: station rtsp livestream started] Station: ${station.getSerial()}, Channel: ${channel}`);
+    });
+
+    eufyClient.on('station rtsp livestream stopped', (station, channel) => {
+        console.log(`[EVENT: station rtsp livestream stopped] Station: ${station.getSerial()}, Channel: ${channel}`);
+        const deviceSerial = findDeviceByChannel(station, channel);
+        if (deviceSerial) {
+            streamUrls.delete(deviceSerial);
+            broadcastEvent({
+                type: 'stream_stopped',
+                serial: deviceSerial
+            });
+        }
+    });
+
+    // P2P Livestream event handlers
+    eufyClient.on('station livestream start', (station, device, metadata, videostream, audiostream) => {
+        const deviceSerial = device.getSerial();
+        console.log(`[P2P] Livestream started for ${deviceSerial}:`, metadata);
+        console.log(`[P2P] Video: ${metadata.videoWidth}x${metadata.videoHeight} @ ${metadata.videoFPS}fps, codec ${metadata.videoCodec}`);
+        console.log(`[P2P] Audio: codec ${metadata.audioCodec}`);
+
+        // Start FFmpeg transcoding from P2P streams
+        try {
+            startP2PTranscoding(deviceSerial, metadata, videostream, audiostream);
+
+            broadcastEvent({
+                type: 'p2p_stream_started',
+                serial: deviceSerial,
+                metadata
+            });
+        } catch (err) {
+            console.error(`[P2P] Failed to start transcoding for ${deviceSerial}:`, err);
+        }
+    });
+
+    eufyClient.on('station livestream stop', (station, device) => {
+        const deviceSerial = device.getSerial();
+        console.log(`[P2P] Livestream stopped for ${deviceSerial}`);
+
+        stopP2PTranscoding(deviceSerial);
+
+        broadcastEvent({
+            type: 'p2p_stream_stopped',
+            serial: deviceSerial
+        });
+    });
+
+    // Add listener for ALL events to debug AND manually handle events if needed
     const originalEmit = eufyClient.emit;
     eufyClient.emit = function(eventName, ...args) {
         console.log(`Event emitted: ${eventName}`);
+
+        // Manually handle station rtsp url event if the normal listener doesn't work
+        if (eventName === 'station rtsp url' && args.length >= 3) {
+            const station = args[0];
+            const channel = args[1];
+            const rtspUrl = args[2];
+            console.log(`[MANUAL HANDLER] RTSP URL: ${rtspUrl}`);
+            const deviceSerial = findDeviceByChannel(station, channel);
+            if (deviceSerial) {
+                streamUrls.set(deviceSerial, rtspUrl);
+                console.log(`[MANUAL] Stored URL for ${deviceSerial}`);
+            }
+        }
+
+        // Manually handle P2P livestream start event if normal listener doesn't work
+        if (eventName === 'station livestream start' && args.length >= 5) {
+            const station = args[0];
+            const device = args[1];
+            const metadata = args[2];
+            const videostream = args[3];
+            const audiostream = args[4];
+
+            const deviceSerial = device.getSerial();
+            console.log(`[MANUAL P2P] Livestream started for ${deviceSerial}:`, metadata);
+
+            try {
+                startP2PTranscoding(deviceSerial, metadata, videostream, audiostream);
+                broadcastEvent({
+                    type: 'p2p_stream_started',
+                    serial: deviceSerial,
+                    metadata
+                });
+            } catch (err) {
+                console.error(`[MANUAL P2P] Failed to start transcoding for ${deviceSerial}:`, err);
+            }
+        }
+
         return originalEmit.apply(this, [eventName, ...args]);
     };
+}
+
+/**
+ * Find device serial by station channel
+ */
+function findDeviceByChannel(station, channel) {
+    // Iterate through devices to find CAMERA belonging to this station
+    // Cameras typically have type 104, 106, etc. (not sensors which are type 11, 12, etc.)
+    for (const [serial, device] of devices) {
+        if (device.getStationSerial() === station.getSerial()) {
+            const deviceType = device.getDeviceType();
+            // Camera types are typically >= 100
+            if (deviceType >= 100) {
+                console.log(`Found camera device: ${serial} (type ${deviceType}) for station ${station.getSerial()}`);
+                return serial;
+            }
+        }
+    }
+    // Fallback to first device if no camera found
+    for (const [serial, device] of devices) {
+        if (device.getStationSerial() === station.getSerial()) {
+            console.log(`Fallback: Using first device ${serial} for station ${station.getSerial()}`);
+            return serial;
+        }
+    }
+    return null;
 }
 
 /**
@@ -345,11 +489,59 @@ app.post('/devices/:serial/command', async (req, res) => {
             case 'disable':
                 await device.setEnabled(false);
                 break;
+            case 'enable_rtsp':
+                // Enable RTSP stream on the device
+                console.log(`Enabling RTSP for device ${req.params.serial}`);
+                await eufyClient.setDeviceProperty(req.params.serial, PropertyName.DeviceRTSPStream, true);
+                // Wait a bit for the property to be applied
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                break;
             case 'start_stream':
-                const streamUrl = await device.startStream();
-                return res.json({ stream_url: streamUrl });
+                // Use P2P livestreaming instead of RTSP
+                console.log(`[P2P] Starting livestream for ${req.params.serial}`);
+
+                try {
+                    // Start P2P livestream - the event handler will start FFmpeg transcoding
+                    await eufyClient.startStationLivestream(req.params.serial);
+
+                    // Wait for P2P stream to start and HLS segments to be created
+                    console.log(`[P2P] Waiting for stream to start...`);
+                    for (let i = 0; i < 30; i++) {
+                        if (activeP2PStreams.has(req.params.serial)) {
+                            console.log(`[P2P] Stream active, checking for HLS playlist...`);
+
+                            // Check if HLS playlist exists
+                            const playlistPath = path.join(HLS_DIR, req.params.serial, 'stream.m3u8');
+                            if (fs.existsSync(playlistPath)) {
+                                const hlsUrl = `http://localhost:${PORT}/hls/${req.params.serial}/stream.m3u8`;
+                                console.log(`[P2P] HLS playlist ready: ${hlsUrl}`);
+                                return res.json({ stream_url: hlsUrl });
+                            }
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+
+                    // Stream started but HLS not ready yet - return URL anyway
+                    const hlsUrl = `http://localhost:${PORT}/hls/${req.params.serial}/stream.m3u8`;
+                    console.log(`[P2P] Returning HLS URL (may take a moment to be ready): ${hlsUrl}`);
+                    return res.json({ stream_url: hlsUrl });
+
+                } catch (err) {
+                    console.error(`[P2P] Failed to start livestream:`, err);
+                    throw new Error(`Failed to start P2P livestream: ${err.message}`);
+                }
             case 'stop_stream':
-                await device.stopStream();
+                // Stop P2P livestream (this will trigger the event handler to cleanup)
+                console.log(`[P2P] Stopping livestream for ${req.params.serial}`);
+                try {
+                    await eufyClient.stopStationLivestream(req.params.serial);
+                    // Also manually cleanup in case event doesn't fire
+                    stopP2PTranscoding(req.params.serial);
+                } catch (err) {
+                    console.error(`[P2P] Error stopping stream:`, err.message);
+                    // Force cleanup even if stop fails
+                    stopP2PTranscoding(req.params.serial);
+                }
                 break;
             default:
                 return res.status(400).json({ error: `Unknown command: ${command}` });
@@ -357,6 +549,32 @@ app.post('/devices/:serial/command', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error(`Command error:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get device snapshot
+ */
+app.get('/devices/:serial/snapshot', async (req, res) => {
+    try {
+        if (!eufyClient) {
+            return res.status(503).json({ error: 'Eufy client not initialized' });
+        }
+
+        const device = devices.get(req.params.serial);
+
+        if (!device) {
+            return res.status(404).json({ error: 'Device not found' });
+        }
+
+        const snapshotBuffer = await device.getPictureBuffer();
+
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.send(snapshotBuffer);
+    } catch (error) {
+        console.error(`Snapshot error:`, error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -517,6 +735,219 @@ wss.on('connection', (ws) => {
         wsClients.delete(ws);
     });
 });
+
+// ============================================================================
+// HLS Transcoding Functions
+// ============================================================================
+
+/**
+ * Start FFmpeg transcoding from RTSP to HLS
+ */
+async function startHLSTranscoding(deviceSerial, rtspUrl) {
+    // Stop existing process if any
+    stopHLSTranscoding(deviceSerial);
+
+    const deviceDir = path.join(HLS_DIR, deviceSerial);
+    if (!fs.existsSync(deviceDir)) {
+        fs.mkdirSync(deviceDir, { recursive: true });
+    }
+
+    const playlistPath = path.join(deviceDir, 'stream.m3u8');
+
+    console.log(`Starting FFmpeg transcoding for ${deviceSerial}: ${rtspUrl} -> ${playlistPath}`);
+
+    const ffmpeg = spawn('ffmpeg', [
+        '-rtsp_transport', 'tcp',
+        '-i', rtspUrl,
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-b:v', '2M',
+        '-maxrate', '2M',
+        '-bufsize', '4M',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-f', 'hls',
+        '-hls_time', '2',
+        '-hls_list_size', '3',
+        '-hls_flags', 'delete_segments+append_list',
+        '-hls_segment_filename', path.join(deviceDir, 'segment%03d.ts'),
+        playlistPath
+    ]);
+
+    ffmpegProcesses.set(deviceSerial, ffmpeg);
+
+    ffmpeg.stdout.on('data', (data) => {
+        console.log(`[FFmpeg ${deviceSerial}] ${data}`);
+    });
+
+    ffmpeg.stderr.on('data', (data) => {
+        console.log(`[FFmpeg ${deviceSerial}] ${data}`);
+    });
+
+    ffmpeg.on('close', (code) => {
+        console.log(`FFmpeg process for ${deviceSerial} exited with code ${code}`);
+        ffmpegProcesses.delete(deviceSerial);
+    });
+
+    // Wait a bit for FFmpeg to start generating segments
+    await new Promise(resolve => setTimeout(resolve, 3000));
+}
+
+/**
+ * Stop FFmpeg transcoding
+ */
+function stopHLSTranscoding(deviceSerial) {
+    const ffmpeg = ffmpegProcesses.get(deviceSerial);
+    if (ffmpeg) {
+        console.log(`Stopping FFmpeg transcoding for ${deviceSerial}`);
+        ffmpeg.kill('SIGTERM');
+        ffmpegProcesses.delete(deviceSerial);
+
+        // Clean up HLS files
+        const deviceDir = path.join(HLS_DIR, deviceSerial);
+        if (fs.existsSync(deviceDir)) {
+            fs.rmSync(deviceDir, { recursive: true, force: true });
+        }
+    }
+}
+
+/**
+ * Start FFmpeg transcoding from P2P video/audio streams to HLS
+ */
+function startP2PTranscoding(deviceSerial, metadata, videostream, audiostream) {
+    // Stop existing transcoding if any
+    stopP2PTranscoding(deviceSerial);
+
+    const deviceDir = path.join(HLS_DIR, deviceSerial);
+    if (!fs.existsSync(deviceDir)) {
+        fs.mkdirSync(deviceDir, { recursive: true });
+    }
+
+    const playlistPath = path.join(deviceDir, 'stream.m3u8');
+
+    console.log(`[P2P] Starting FFmpeg transcoding for ${deviceSerial} -> ${playlistPath}`);
+
+    // Video codec mapping: 0 = H.264, 1 = H.265
+    const videoFormat = metadata.videoCodec === 0 ? 'h264' : 'h264';
+
+    // Build FFmpeg arguments for piped input
+    const ffmpegArgs = [
+        // Input format and settings
+        '-f', videoFormat,
+        '-r', String(metadata.videoFPS || 15),
+        '-s', `${metadata.videoWidth}x${metadata.videoHeight}`,
+        '-i', 'pipe:0',         // Video from stdin
+
+        // Video encoding - copy to avoid re-encoding (faster, less CPU)
+        '-c:v', 'copy',
+
+        // HLS output settings
+        '-f', 'hls',
+        '-hls_time', '2',                                    // 2 second segments
+        '-hls_list_size', '3',                               // Keep last 3 segments
+        '-hls_flags', 'delete_segments+append_list',         // Auto-cleanup old segments
+        '-hls_segment_filename', path.join(deviceDir, 'segment%03d.ts'),
+        playlistPath
+    ];
+
+    console.log(`[P2P] FFmpeg command: ffmpeg ${ffmpegArgs.join(' ')}`);
+
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+
+    // Pipe video stream to FFmpeg stdin
+    videostream.pipe(ffmpeg.stdin);
+
+    // Handle video stream errors
+    videostream.on('error', (err) => {
+        console.error(`[P2P] Video stream error for ${deviceSerial}:`, err.message);
+    });
+
+    // Handle FFmpeg stdout
+    ffmpeg.stdout.on('data', (data) => {
+        console.log(`[P2P FFmpeg ${deviceSerial}] ${data}`);
+    });
+
+    // Handle FFmpeg stderr (progress info)
+    ffmpeg.stderr.on('data', (data) => {
+        const output = data.toString();
+        // Only log errors and important messages, not every frame
+        if (output.includes('error') || output.includes('Error') || output.includes('failed')) {
+            console.error(`[P2P FFmpeg ${deviceSerial}] ${output}`);
+        }
+    });
+
+    // Handle FFmpeg exit
+    ffmpeg.on('close', (code) => {
+        console.log(`[P2P] FFmpeg process for ${deviceSerial} exited with code ${code}`);
+        ffmpegProcesses.delete(deviceSerial);
+        activeP2PStreams.delete(deviceSerial);
+    });
+
+    ffmpeg.on('error', (err) => {
+        console.error(`[P2P] FFmpeg error for ${deviceSerial}:`, err.message);
+        ffmpegProcesses.delete(deviceSerial);
+        activeP2PStreams.delete(deviceSerial);
+    });
+
+    // Store process and stream info
+    ffmpegProcesses.set(deviceSerial, ffmpeg);
+    activeP2PStreams.set(deviceSerial, {
+        ffmpeg,
+        videostream,
+        audiostream,
+        metadata
+    });
+
+    console.log(`[P2P] Transcoding started for ${deviceSerial}`);
+}
+
+/**
+ * Stop P2P transcoding and cleanup
+ */
+function stopP2PTranscoding(deviceSerial) {
+    const streamInfo = activeP2PStreams.get(deviceSerial);
+    if (streamInfo) {
+        console.log(`[P2P] Stopping transcoding for ${deviceSerial}`);
+
+        // Kill FFmpeg process
+        if (streamInfo.ffmpeg) {
+            streamInfo.ffmpeg.kill('SIGTERM');
+        }
+
+        // Unpipe and destroy streams
+        if (streamInfo.videostream) {
+            streamInfo.videostream.unpipe();
+            streamInfo.videostream.destroy();
+        }
+        if (streamInfo.audiostream) {
+            streamInfo.audiostream.unpipe();
+            streamInfo.audiostream.destroy();
+        }
+
+        activeP2PStreams.delete(deviceSerial);
+    }
+
+    // Also remove from ffmpegProcesses map
+    const ffmpeg = ffmpegProcesses.get(deviceSerial);
+    if (ffmpeg && !streamInfo) {
+        ffmpeg.kill('SIGTERM');
+        ffmpegProcesses.delete(deviceSerial);
+    }
+
+    // Clean up HLS files
+    const deviceDir = path.join(HLS_DIR, deviceSerial);
+    if (fs.existsSync(deviceDir)) {
+        fs.rmSync(deviceDir, { recursive: true, force: true });
+    }
+
+    console.log(`[P2P] Transcoding stopped and cleaned up for ${deviceSerial}`);
+}
+
+/**
+ * Serve HLS streams
+ */
+app.use('/hls', express.static(HLS_DIR));
 
 // ============================================================================
 // Startup

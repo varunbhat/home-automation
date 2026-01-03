@@ -40,6 +40,7 @@ class CommandResult(BaseModel):
     success: bool
     message: Optional[str] = None
     state: Optional[DeviceState] = None
+    data: Optional[Dict[str, Any]] = None  # Command-specific data (e.g., stream_url)
 
 
 class ErrorResponse(BaseModel):

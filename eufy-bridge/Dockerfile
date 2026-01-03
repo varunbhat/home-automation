@@ -1,6 +1,9 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Install FFmpeg for RTSP to HLS transcoding
+RUN apk add --no-cache ffmpeg
 
 # Run as non-root user
 RUN addgroup -g 1001 -S nodejs && \
