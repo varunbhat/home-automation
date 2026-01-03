@@ -32,13 +32,16 @@ class Device:
         self._logger = logging.getLogger(f"device.{device_info.id}")
 
     @abstractmethod
-    async def execute_command(self, command: str, params: Optional[Dict] = None) -> None:
+    async def execute_command(self, command: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
         Execute a command on the device.
 
         Args:
             command: Command name (e.g., 'turn_on', 'set_brightness')
             params: Command parameters
+
+        Returns:
+            Optional dict with command-specific data (e.g., stream_url)
         """
         pass
 

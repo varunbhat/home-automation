@@ -29,14 +29,10 @@ services:
     container_name: maneyantra-eufy-bridge
     env_file:
       - .env
-    ports:
-      - "3000:3000"  # HTTP API
-      - "3001:3001"  # WebSocket
+    network_mode: host  # Use host network to access cameras on LAN
     volumes:
       - ./data/eufy:/app/data  # Persist trusted device tokens to avoid CAPTCHA
     restart: unless-stopped
-    networks:
-      - maneyantra-network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
       interval: 30s

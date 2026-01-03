@@ -88,6 +88,10 @@ class DeviceState(BaseModel):
     voltage: Optional[float] = None  # Volts
     current: Optional[float] = None  # Amps
 
+    # Video streaming
+    stream_url: Optional[str] = None  # Current active stream URL
+    snapshot_url: Optional[str] = None  # Last snapshot URL
+
     # Custom attributes
     custom: Dict[str, Any] = Field(default_factory=dict)
 

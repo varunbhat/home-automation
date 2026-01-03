@@ -7,12 +7,12 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "eufy-security-client": "^3.0.0",
+    "eufy-security-client": "^3.4.0",
     "express": "^4.18.2",
     "ws": "^8.14.0",
     "dotenv": "^16.3.1"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

@@ -130,7 +130,13 @@ class EufyPlugin(BaseDevicePlugin):
 
         # Cameras and Doorbells
         if device_type in [7, 8, 9, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39] or device_type >= 90:
-            return EufyCamera(device_data, self.plugin_id, self.event_bus)
+            return EufyCamera(
+                device_data,
+                self.plugin_id,
+                self.event_bus,
+                self.bridge_url,
+                self.session
+            )
 
         # Sensors (Entry/Door sensors and Motion sensors)
         elif device_type in [2, 10]:

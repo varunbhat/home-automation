@@ -120,7 +120,7 @@ async def execute_command(
         if device:
             try:
                 # Execute command
-                await device.execute_command(command.command, command.params)
+                result_data = await device.execute_command(command.command, command.params)
 
                 # Refresh state
                 await device.refresh_state()
@@ -129,6 +129,7 @@ async def execute_command(
                     success=True,
                     message=f"Command '{command.command}' executed successfully",
                     state=device.state,
+                    data=result_data,
                 )
 
             except ValueError as e:

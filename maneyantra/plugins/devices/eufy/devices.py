@@ -1,5 +1,6 @@
 """Eufy device implementations."""
 
+import aiohttp
 from typing import Dict, Optional
 
 from maneyantra.core.rabbitmq_bus import RabbitMQEventBus
@@ -20,6 +21,8 @@ class EufyCamera(Device):
         eufy_device: Dict,
         plugin_id: str,
         event_bus: RabbitMQEventBus,
+        bridge_url: str,
+        session: aiohttp.ClientSession,
     ):
         # Determine capabilities
         capabilities = [
@@ -49,13 +52,51 @@ class EufyCamera(Device):
 
         self.eufy_device = eufy_device
         self.station_serial = eufy_device.get("station_serial")
+        self.bridge_url = bridge_url
+        self.session = session
 
-    async def execute_command(self, command: str, params: Optional[Dict] = None) -> None:
+    async def execute_command(self, command: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """Execute a command on the camera."""
         params = params or {}
-        # Commands would be sent via bridge API
-        # TODO: Implement bridge API commands
-        raise NotImplementedError("Camera commands via bridge not yet implemented")
+        serial = self.eufy_device.get("serial")
+
+        if command == "start_stream":
+            async with self.session.post(
+                f"{self.bridge_url}/devices/{serial}/command",
+                json={"command": "start_stream"},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    stream_url = data.get("stream_url")
+                    if not stream_url:
+                        raise RuntimeError("Bridge did not return stream_url")
+
+                    await self.update_state({"stream_url": stream_url})
+                    return {"stream_url": stream_url}
+                else:
+                    error_text = await resp.text()
+                    raise RuntimeError(f"Bridge error: {error_text}")
+
+        elif command == "stop_stream":
+            async with self.session.post(
+                f"{self.bridge_url}/devices/{serial}/command",
+                json={"command": "stop_stream"},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    await self.update_state({"stream_url": None})
+                    return {"success": True}
+                else:
+                    raise RuntimeError(f"Failed to stop stream")
+
+        elif command == "get_snapshot":
+            return {
+                "snapshot_url": f"{self.bridge_url}/devices/{serial}/snapshot"
+            }
+
+        else:
+            raise ValueError(f"Unknown camera command: {command}")
 
     async def refresh_state(self) -> DeviceState:
         """Refresh state from the physical device."""
@@ -124,7 +165,7 @@ class EufySensor(Device):
 
         self.eufy_device = eufy_device
 
-    async def execute_command(self, command: str, params: Optional[Dict] = None) -> None:
+    async def execute_command(self, command: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """Execute a command on the sensor."""
         # Most sensors don't support commands, but we'll handle any that do
         raise ValueError(f"Sensors do not support commands: {command}")

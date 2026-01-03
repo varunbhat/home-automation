@@ -6,6 +6,7 @@ import { ColorControl } from '../DeviceControls/ColorControl'
 import { ColorTempControl } from '../DeviceControls/ColorTempControl'
 import { SensorDisplay } from '../DeviceControls/SensorDisplay'
 import { EnergyDisplay } from '../DeviceControls/EnergyDisplay'
+import { CameraControls } from '../DeviceControls/CameraControls'
 
 interface DeviceCardControlsProps {
   device: Device
@@ -15,6 +16,22 @@ interface DeviceCardControlsProps {
 
 export function DeviceCardControls({ device, onCommand, disabled }: DeviceCardControlsProps) {
   const controls: React.ReactNode[] = []
+
+  // Video streaming (cameras)
+  if (hasCapability(device, DeviceCapability.VIDEO_STREAM)) {
+    controls.push(
+      <CameraControls
+        key="camera"
+        device={device}
+        onCommand={(command, success) => {
+          if (success) {
+            onCommand(command)
+          }
+        }}
+        disabled={disabled}
+      />
+    )
+  }
 
   // Power control (most devices)
   if (hasCapability(device, DeviceCapability.ON_OFF)) {
